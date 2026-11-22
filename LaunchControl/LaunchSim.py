@@ -1,9 +1,8 @@
 """
 Simulate launch, given the vehicle parameters and control input
 """
-import scipy
 import numpy as np
-from DynamicModel import integrate_dx
+from VehicleModel.DynamicModel import integrate_dx
 
 # Unit conversion constants
 rad_to_deg = 180 / np.pi
@@ -23,7 +22,8 @@ wCol = 10   # Column width for info (-)
 
 # TODO: implement control logic in here - probably add an argument to take in the function
 #       function takes in the state vector x (and maybe vehicle parameter dict?) and returns the new control input u
-def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, BReturnTraj=False, BVerbose=False):
+def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, controlFunc, controlFuncArgs,
+                    BReturnTraj=False, BVerbose=False):
     """Simulate launch from initial state xInitial until the vehicle speed exceeds vCarCutoff"""
     def print_info(t, x, u):
         """Print info of the system state at the timestep"""
@@ -32,6 +32,9 @@ def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, BReturnTraj=Fals
         for col in cols:
             printStr += col + ' ' * (wCol - len(col))
         print(printStr.rstrip())
+
+    # Sanitise input update timestep
+    tStepInput = max(tStepInput, tStepSim)
 
     # Simulation setup
     t = 0
@@ -57,14 +60,8 @@ def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, BReturnTraj=Fals
         tsInterval = np.arange(t, tIntervalEnd, tStepSim)
         tInput += tStepInput
 
-        # Upshift logic - upshift if the engine speed is predicted to exceed the RPM limit before the next input interval
-        if t > 0:
-            wEngineDelta = xsInterval[-1, 1] - xsInterval[0, 1]
-            if xsInterval[-1, 1] + wEngineDelta >= params['wEngineLimit'] and NGear < len(params['rGears']):
-                NGear += 1
-
-        # TODO: Placeholder control input
-        u = [1., 0.63]
+        # Control input
+        u, NGear = controlFunc(x, *controlFuncArgs)
 
         # Solve trajectory for the interval with the optimised input
         xsInterval = integrate_dx(tsInterval, x, u, NGear, params)
@@ -91,30 +88,47 @@ def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, BReturnTraj=Fals
         us = np.vstack(us)
         us[0] = us[1]
         NGears = np.hstack(NGears)
-        traj = (ts, xs, us, NGears)
-        return tLaunch, traj
+        trajLUT = np.hstack((ts.reshape((len(ts), 1)), xs, us, NGears.reshape((len(NGears), 1))))
+        return tLaunch, trajLUT
     else:
         return tLaunch
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from VehicleParams import params
+    from VehicleModel.VehicleParams import params
+    from LaunchControl.ControlOpenLoop import calc_control_open_loop
+
+
+    # Launch settings
+    vCarCutoff = 90 * kph_to_ms             # Car speed cutoff (m/s)
+    wEngineMarginPower = 100 * rpm_to_rads  # Margin to engine limiter (rad/s)
 
     # Simulation initial state and settings
     vCarStart = 0                       # Initial car speed (m/s)
-    wEngineStart = 6500 * rpm_to_rads   # Initial engine angular speed (rad/s)
+    wEngineStart = params['wEngineLimit'] - wEngineMarginPower   # Initial engine angular speed (rad/s)
     rSlipStart = 0                      # Initial slip ratio (1)
-    vCarCutoff = 100 * kph_to_ms        # Car speed cutoff (m/s)
 
     # Simulation settings
-    tStepInput = 5e-2                   # Input update timestep (s)
-    tStepSim = 5e-4                     # Simulation integration timestep (s)
+    tStepInput = 1e-3                   # Input update timestep (s)
+    tStepSim = 1e-3                     # Simulation integration timestep (s)
 
-    # Simulate launch and unpack returned trajectory
+    # Open-loop controller settings - Filename of the open-loop trajectory CSV
+    trajFilename = r"/Users/willow/Documents/Repos/LaunchControl/OptimalLaunch/OptTraj.csv"
+
+    # Read the trajectory LUT for the open-loop controller
+    trajLUT = np.loadtxt(trajFilename)
+
+    # Simulate launch
     xInitial = [vCarStart, wEngineStart, rSlipStart]
-    tLaunch, traj = simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, True, True)
-    ts, xs, us, NGears = traj
+    tLaunch, trajLUT = simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim,
+                                    calc_control_open_loop, [trajLUT], True, True)
+
+    # Unpack returned trajectory
+    ts = trajLUT[:, 0]
+    xs = trajLUT[:, 1:4]
+    us = trajLUT[:, 4:6]
+    NGears = np.array(trajLUT[:, -1], dtype=int)
 
     # Print the launch time
     print(f"\nTime to vCarCutoff: {tLaunch:.3f} s")

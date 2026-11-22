@@ -1,9 +1,9 @@
 """
-Dynamic vehicle model
+Dynamic vehicle model and associated regime-specific dynamic models
 """
 import numpy as np
-from EngineModel import calc_MEngineMax
-from TyreModel import calc_FTyre
+from VehicleModel.EngineModel import calc_MEngineMax
+from VehicleModel.TyreModel import calc_FTyre
 
 
 # Settings
@@ -169,3 +169,23 @@ def calc_dx_4(xReduced, uReduced, NGear, params):
     dxReduced = np.linalg.solve(A, B)
 
     return dxReduced
+
+
+def res_control_ref_1(uCandidate, x, NGear, params):
+    """Calculate reference control input for 0 dwEngine and 0 drSlip, for simplified state space regime 1"""
+    return calc_dx_1(x, uCandidate, NGear, params)[1:]
+
+
+def res_control_ref_2(uReducedCandidate, xReduced, NGear, params):
+    """Calculate reference control input for 0 dwEngine and 0 drSlip, for simplified state space regime 2"""
+    return calc_dx_2(xReduced, uReducedCandidate, NGear, params)[1:]
+
+
+def res_control_ref_3(uReducedCandidate, xReduced, NGear, params):
+    """Calculate reference control input for 0 dwEngine and 0 drSlip, for simplified state space regime 3"""
+    return calc_dx_3(xReduced, uReducedCandidate, NGear, params)
+
+
+def res_control_ref_4(uReducedCandidate, xReduced, NGear, params):
+    """Calculate reference control input for 0 dwEngine and 0 drSlip, for simplified state space regime 4"""
+    return calc_dx_4(xReduced, uReducedCandidate, NGear, params)[1:]

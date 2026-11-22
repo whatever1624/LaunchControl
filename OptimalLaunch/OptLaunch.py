@@ -6,18 +6,20 @@ TODO: But actually this problem should probably be solved as an optimal control 
 """
 import scipy
 import numpy as np
-from EngineModel import calc_MEngineMax
-from TyreModel import calc_FTyre, calc_dFTyre_drSlip
-from DynamicModel import integrate_dx
+from VehicleModel.EngineModel import calc_MEngineMax
+from VehicleModel.TyreModel import calc_FTyre
+from VehicleModel.DynamicModel import integrate_dx
+from OptimalLaunch.CalcStateTargets import calc_wEngineTarget_1, calc_wEngineTarget_3, calc_rSlipTarget_124
+from OptimalLaunch.OptGears import opt_gears, select_gear
 
 
 # Print settings
 wCol = 10   # Column width for info (-)
 
 
-def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BReturnTraj=False, BVerbose=False):
-    """Optimise inputs to maximise vCar at the end of each input interval, constrained where wEngine >= wEngine for peak
-    torque, and rSlip <= rSlip for peak FTyre"""
+def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, wEngineMarginPower, params,
+               BReturnTrajLUT=False, BVerbose=False):
+    """Optimise inputs to maximise vCar at the end of each input interval, with wEngine and rSlip constraints"""
     def print_info(t, x, u):
         """Print info of the system state at the timestep"""
         printStr = ""
@@ -26,62 +28,74 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BR
             printStr += col + ' ' * (wCol - len(col))
         print(printStr.rstrip())
 
-    def obj_u_interval(u, wEngineMin, rSlipMax, uNominal, tsInterval, x, NGear, params):
+    def obj_u_interval(uCandidate, uNominal, tsInterval, x, NGear, params):
         """Objective function for input interval (maximise final vCar, constrained by min wEngine and max rSlip limits)"""
         rScaleNormalisation = tsInterval[-1] - tsInterval[0]
-        rScalewEngineViolation = 1e6 * rScaleNormalisation / wEngineMEnginePeak
-        rScalerSlipViolation = 1e6 * rScaleNormalisation / rSlipFTyrePeak
-        rScaleuPrimePenalty = 1e-3 * rScaleNormalisation / rSlipFTyrePeak
+        rScalewEngineViolation = 1e6 * rScaleNormalisation / wEngineTarget3
+        rScalerSlipViolation = 1e6 * rScaleNormalisation / rSlipTarget124
+        rScaleuNominalPenalty = 1e-3 * rScaleNormalisation
 
         # Simulate interval
-        xsInterval = integrate_dx(tsInterval, x, u, NGear, params)
+        xsInterval = integrate_dx(tsInterval, x, uCandidate, NGear, params)
         vCarFinal = xsInterval[-1, 0]
 
-        # Calculate multiplier for constraint violations and deviation from nominal control input
-        wEngineViolation = max(0, wEngineMin - min(xsInterval[1:, 1]))
-        rSlipViolation = max(0, max(xsInterval[1:, 2]) - rSlipMax)
-        uDeviation = np.sum(np.abs(u - uNominal))
+        # Calculate sum of squared constraint violations and deviations from nominal control inputs
+        wEngineUpperViolation = np.sum(np.square(np.maximum(0, xsInterval[1:, 1] - wEngineTarget1)))
+        wEngineLowerViolation = np.sum(np.square(np.maximum(0, wEngineTarget3 - xsInterval[1:, 1])))
+        rSlipViolation = np.sum(np.square(np.maximum(0, xsInterval[1:, 2] - rSlipTarget124)))
+        uDeviation = np.sum(np.square(uCandidate - uNominal))
+
+        # Calculate penalty
         penalty = 0
-        penalty += rScalewEngineViolation * wEngineViolation
+        penalty += rScalewEngineViolation * wEngineUpperViolation
+        penalty += rScalewEngineViolation * wEngineLowerViolation
         penalty += rScalerSlipViolation * rSlipViolation
-        penalty += rScaleuPrimePenalty * uDeviation
+        penalty += rScaleuNominalPenalty * uDeviation
 
         # Objective function result - negative since vCarFinal should be maximised
         obj = -vCarFinal + penalty
         return obj
 
-    def obj_u_interval_clutch(rClutchLinear, wEngineMin, rSlipMax, rClutchLinearNominal, tsInterval, x, NGear, params):
+    def obj_u_interval_clutch(rClutchLinearCandidate, rClutchLinearNominal, tsInterval, x, NGear, params):
         """Wrapper for obj_u_interval, assuming full rThrottleLinear"""
         rThrottleLinear = 1.
-        rClutchLinear = rClutchLinear[0]
-        u = np.array([rThrottleLinear, rClutchLinear])
+        rClutchLinearCandidate = rClutchLinearCandidate[0]
+        uCandidate = np.array([rThrottleLinear, rClutchLinearCandidate])
         uNominal = np.array([rThrottleLinear, rClutchLinearNominal])
-        return obj_u_interval(u, wEngineMin, rSlipMax, uNominal, tsInterval, x, NGear, params)
+        return obj_u_interval(uCandidate, uNominal, tsInterval, x, NGear, params)
 
     # Sanitise input update timesteps
     tStepInputInitial = max(tStepInputInitial, tStepSim)
     tStepInput = max(tStepInput, tStepSim)
 
-    # Find wEngine for max MEngine and rSlip for max FTyre
-    wEngineMEnginePeak = params['EngineLUT'][np.argmax(params['EngineLUT'][:, 1]), 0]
+    # Calculate wEngine and rSlip targets
+    wEngineTarget1 = calc_wEngineTarget_1(wEngineMarginPower, params)
+    wEngineTarget3 = min(wEngineTarget1, calc_wEngineTarget_3(params))
+    rSlipTarget124 = calc_rSlipTarget_124(params)
+
+    # Find peak FTyre
     tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
-    rSlipFTyrePeak = scipy.optimize.root(calc_dFTyre_drSlip, 1e-3, args=tyreParams).x[0]
-    FTyrePeak = calc_FTyre(rSlipFTyrePeak, *tyreParams)
+    FTyrePeak = calc_FTyre(rSlipTarget124, *tyreParams)
+
+    # Optimise gear selection
+    gearLUT = opt_gears(wEngineMarginPower, params)
 
     if BVerbose:
-        print(f"wEngine for max MEngine: {wEngineMEnginePeak:.3f} rad/s")
-        print(f"rSlip for max FTyre:     {rSlipFTyrePeak:.3f} rad/s\n")
+        print(f"wEngine for max MEngine:        {calc_wEngineTarget_3(params):.3f} rad/s")
+        print(f"rSlip for max FTyre:            {rSlipTarget124:.3f}")
+        print()
+        print(f"wEngine target (Regime 1):      {wEngineTarget1:.3f} rad/s")
+        print(f"wEngine target (Regime 3):      {wEngineTarget3:.3f} rad/s")
+        print(f"rSlip target (Regimes 1, 2, 4): {rSlipTarget124:.3f}\n")
 
     # Simulation setup
-    wEngineMin = wEngineMEnginePeak
-    rSlipMax = rSlipFTyrePeak
     t = 0
     tInput = tStepInputInitial
     x = np.array(xInitial, dtype=float)
     NGear = 1
 
     # Launch trajectory variables
-    if BReturnTraj:
+    if BReturnTrajLUT:
         ts = [[0]]
         xs = [[x]]
         us = [[0, 0]]
@@ -94,12 +108,11 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BR
         tsInterval = np.arange(t, tIntervalEnd, tStepSim)
         tInput += tStepInput
 
-        # Upshift logic - upshift if the engine speed is predicted to exceed the RPM limit before the next input interval
-        # TODO: improve this - use gearbox speed instead of engine speed, incorporate torque curve
+        # Apply upshift logic to predicted car speed at the next input interval
         if t > 0:
-            wEngineDelta = xsInterval[-1, 1] - xsInterval[0, 1]
-            if xsInterval[-1, 1] + wEngineDelta >= params['wEngineLimit'] and NGear < len(params['rGears']):
-                NGear += 1
+            dvCarDelta = xsInterval[-1, 0] - xsInterval[0, 0]
+            vCarPred = xsInterval[-1, 0] + dvCarDelta
+            NGear = select_gear(vCarPred, gearLUT)
 
         # Check if overpowered or underpowered at the current MEngineMax with peak FTyre
         MEngineMax = calc_MEngineMax(x[1], params['EngineLUT'])
@@ -111,14 +124,14 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BR
             uNominal = np.array([0.5, 0.5])
             res = scipy.optimize.minimize(obj_u_interval, uNominal,
                                           bounds=[(0, 1), (0, 1)], method='Nelder-Mead',
-                                          args=(wEngineMin, rSlipMax, uNominal, tsInterval, x, NGear, params))
+                                          args=(uNominal, tsInterval, x, NGear, params))
             u = res.x
         else:
             # Optimise clutch position, assuming full throttle
             rClutchPedalNominal = 0.
             res = scipy.optimize.minimize(obj_u_interval_clutch, rClutchPedalNominal,
                                           bounds=[(0, 1)], method='Nelder-Mead',
-                                          args=(wEngineMin, rSlipMax, rClutchPedalNominal, tsInterval, x, NGear, params))
+                                          args=(rClutchPedalNominal, tsInterval, x, NGear, params))
             u = [1., res.x[0]]
 
         # Solve trajectory for the interval with the optimised input
@@ -127,7 +140,7 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BR
         x = xsInterval[-1]
 
         # Update launch trajectory
-        if BReturnTraj:
+        if BReturnTrajLUT:
             ts.append(tsInterval[1:])
             xs.append(xsInterval[1:])
             us.append(np.full((len(xsInterval) - 1, len(u)), u))
@@ -140,21 +153,27 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, BR
     tLaunch = np.interp(vCarCutoff, xsInterval[:, 0], tsInterval)
 
     # Collate times, state vectors, input vectors and gear selections for launch trajectory
-    if BReturnTraj:
+    if BReturnTrajLUT:
         ts = np.hstack(ts)
         xs = np.vstack(xs)
         us = np.vstack(us)
         us[0] = us[1]
         NGears = np.hstack(NGears)
-        traj = (ts, xs, us, NGears)
-        return tLaunch, traj
+        trajLUT = np.hstack((ts.reshape((len(ts), 1)), xs, us, NGears.reshape((len(NGears), 1))))
+        return tLaunch, trajLUT
     else:
         return tLaunch
 
 
+def save_launch_traj(trajLUT, trajFileName):
+    """Save launch trajectory to a CSV file"""
+    header = "Columns: t, vCar, wEngine, rSlip, rThrottleLinear, rClutchLinear, NGear"
+    np.savetxt(trajFileName, trajLUT, header=header)
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from VehicleParams import params
+    from VehicleModel.VehicleParams import params
 
     # Unit conversion constants
     rad_to_deg = 180 / np.pi
@@ -168,34 +187,39 @@ if __name__ == '__main__':
     ratio_to_percent = 100
     percent_to_ratio = 0.01
 
-    # Simulation initial state
-    vCarStart = 0                       # Initial car speed (m/s)
-    wEngineStart = 6500 * rpm_to_rads   # Initial engine angular speed (rad/s)
-    rSlipStart = 0                      # Initial slip ratio (1)
-    NGearStart = 1                      # Initial gear number (-)
-
     # Launch settings
-    vCarCutoff = 90 * kph_to_ms         # Car speed cutoff (m/s)
+    vCarCutoff = 90 * kph_to_ms             # Car speed cutoff (m/s)
+    wEngineMarginPower = 100 * rpm_to_rads  # Margin to engine limiter (rad/s)
+
+    # Simulation initial state
+    vCarStart = 0                           # Initial car speed (m/s)
+    wEngineStart = params['wEngineLimit'] - wEngineMarginPower   # Initial engine angular speed (rad/s)
+    rSlipStart = 0                          # Initial slip ratio (1)
+    NGearStart = 1                          # Initial gear number (-)
 
     # Simulation settings
-    tStepInputInitial = 0.025           # First input interval (s)
-    tStepInput = tStepInputInitial      # Input update timestep (s)
-    tStepSim = 1e-3                     # Simulation integration timestep (s)
-    saveFileName = "OptTraj.csv"        # Filename for the trajectory CSV
+    tStepInputInitial = 0.025               # First input interval (s)
+    tStepInput = tStepInputInitial          # Input update timestep (s)
+    tStepSim = 1e-3                         # Simulation integration timestep (s)
+    trajFileName = r"OptTraj.csv"           # Filename to save the trajectory CSV
 
-    # Simulate launch and unpack returned trajectory
+    # Simulate launch and
     xInitial = [vCarStart, wEngineStart, rSlipStart]
-    tLaunch, traj = opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, True, True)
-    ts, xs, us, NGears = traj
+    tLaunch, trajLUT = opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, wEngineMarginPower,
+                                  params, BReturnTrajLUT=True, BVerbose=True)
+
+    # Unpack returned trajectory
+    ts = trajLUT[:, 0]
+    xs = trajLUT[:, 1:4]
+    us = trajLUT[:, 4:6]
+    NGears = np.array(trajLUT[:, -1], dtype=int)
 
     # Print the launch time
     print(f"\nTime to vCarCutoff: {tLaunch:.3f} s")
 
     # Save launch trajectory as a CSV file, with columns: t, *x, *u, NGear
-    traj = np.hstack((ts.reshape((len(ts), 1)), xs, us, NGears.reshape((len(NGears), 1))))
-    header = "Columns: t, vCar, wEngine, rSlip, rThrottleLinear, rClutchLinear, NGear"
-    np.savetxt(saveFileName, traj, header=header)
-    print(f"\nOptimised launch trajectory saved to {saveFileName}")
+    save_launch_traj(trajLUT, trajFileName)
+    print(f"\nOptimised launch trajectory saved to {trajFileName}")
 
     # Extract launch trajectory data
     vCars, wEngines, rSlips = xs.T

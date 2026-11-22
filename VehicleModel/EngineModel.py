@@ -9,20 +9,9 @@ def calc_MEngineMax(wEngine, engineLUT):
     return np.interp(wEngine, engineLUT[:, 0], engineLUT[:, 1])
 
 def calc_dMEngineMax_dwEngine(wEngine, engineLUT):
-    """Piecewise constant gradient of lookup table"""
-    lenEngineLUT = len(engineLUT)
-    if wEngine < engineLUT[0, 0] or engineLUT[-1, 0] <= wEngine or lenEngineLUT <= 1:
-        return 0
-    elif wEngine < engineLUT[1, 0]:
-        return (engineLUT[1, 1] - engineLUT[0, 1]) / (engineLUT[1, 0] - engineLUT[0, 0])
-    else:
-        i = 1
-        iMax = lenEngineLUT - 1
-        while i < iMax:
-            i += 1
-            if wEngine <= engineLUT[i, 0]:
-                break
-        return (engineLUT[i, 1] - engineLUT[i - 1, 1]) / (engineLUT[i, 0] - engineLUT[i - 1, 0])
+    """Numerical central gradient of lookup table"""
+    eps = 1e-3
+    return (calc_MEngineMax(wEngine + eps, engineLUT) - calc_MEngineMax(wEngine - eps, engineLUT)) / (2 * eps)
 
 
 if __name__ == '__main__':

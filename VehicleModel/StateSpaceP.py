@@ -2,24 +2,31 @@
 Calculate state space matrices for each of the 4 operating regimes - P-control only
 """
 import numpy as np
-from EngineModel import calc_MEngineMax, calc_dMEngineMax_dwEngine
-from TyreModel import calc_dFTyre_drSlip
-from DynamicModel import calc_dx_1, calc_dx_2, calc_dx_3, calc_dx_4
+from VehicleModel.EngineModel import calc_MEngineMax, calc_dMEngineMax_dwEngine
+from VehicleModel.TyreModel import calc_dFTyre_drSlip
+from VehicleModel.DynamicModel import calc_dx_1, calc_dx_2, calc_dx_3, calc_dx_4
 
 
-def calc_state_space_1(x, u, NGear, params):
+# Settings
+vCarMin = 1     # Minimum vCar to avoid numerical instability (m/s)
+
+
+def calc_state_space_1(x, u, NGear, params, BMEnginePeak=False, BFTyrePeak=False):
     """Calculate state space A and B matrices for regime 1, linearised about the point with state x and input u"""
     dvCar, dwEngine, drSlip = calc_dx_1(x, u, NGear, params)
     vCar, wEngine, rSlip = x
     rThrottleLinear, rClutchLinear = u
 
+    # Avoid numerical instability at low speed
+    vCar = max(vCarMin, vCar)
+
     # Intermediate variables
     rGear = params['rGears'][NGear - 1] * params['rGearFinal']
     IEquiv = (params['IGearbox'] * rGear ** 2 + params['IWheel']) / params['lWheel']
-    tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
-    dFTyre_drSlip = calc_dFTyre_drSlip(rSlip, *tyreParams)
-    dMEngineMax_dwEngine = calc_dMEngineMax_dwEngine(wEngine, params['EngineLUT'])
+    dMEngineMax_dwEngine = 0 if BMEnginePeak else calc_dMEngineMax_dwEngine(wEngine, params['EngineLUT'])
     MEngineMax = calc_MEngineMax(wEngine, params['EngineLUT'])
+    tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
+    dFTyre_drSlip = 0 if BFTyrePeak else calc_dFTyre_drSlip(rSlip, *tyreParams)
 
     L = np.array([[params['mCar'],          0,                      0],
                   [0,                       params['IEngine'],      0],
@@ -41,17 +48,20 @@ def calc_state_space_1(x, u, NGear, params):
     return A, B
 
 
-def calc_state_space_2(xReduced, uReduced, NGear, params):
+def calc_state_space_2(xReduced, uReduced, NGear, params, BFTyrePeak=False):
     """Calculate state space A and B matrices for regime 1, linearised about the point with state x and input u"""
     dvCar, drSlip = calc_dx_2(xReduced, uReduced, NGear, params)
     vCar, rSlip = xReduced
     rClutchLinear = uReduced[0]
 
+    # Avoid numerical instability at low speed
+    vCar = max(vCarMin, vCar)
+
     # Intermediate variables
     rGear = params['rGears'][NGear - 1] * params['rGearFinal']
     IEquiv = (params['IGearbox'] * rGear ** 2 + params['IWheel']) / params['lWheel']
     tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
-    dFTyre_drSlip = calc_dFTyre_drSlip(rSlip, *tyreParams)
+    dFTyre_drSlip = 0 if BFTyrePeak else calc_dFTyre_drSlip(rSlip, *tyreParams)
 
     L = np.array([[params['mCar'],          0],
                   [IEquiv * (1 + rSlip),    IEquiv * vCar]])
@@ -70,14 +80,14 @@ def calc_state_space_2(xReduced, uReduced, NGear, params):
     return A, B
 
 
-def calc_state_space_3(xReduced, uReduced, NGear, params):
+def calc_state_space_3(xReduced, uReduced, NGear, params, BMEnginePeak=False):
     """Calculate state space A and B matrices for regime 1, linearised about the point with state x and input u"""
     wEngine = xReduced[0]
     rClutchLinear = uReduced[0]
     rThrottleLinear = 1.
 
     # Intermediate variables
-    dMEngineMax_dwEngine = calc_dMEngineMax_dwEngine(wEngine, params['EngineLUT'])
+    dMEngineMax_dwEngine = 0 if BMEnginePeak else calc_dMEngineMax_dwEngine(wEngine, params['EngineLUT'])
 
     L = params['IEngine']
     M = -rThrottleLinear * dMEngineMax_dwEngine
@@ -85,28 +95,31 @@ def calc_state_space_3(xReduced, uReduced, NGear, params):
 
     # Calculate A and B matrices
     L_inv = 1 / L
-    A = np.array([-L_inv * M])
-    B = np.array([-L_inv * N])
+    A = np.array([[-L_inv * M]])
+    B = np.array([[-L_inv * N]])
 
     return A, B
 
 
-def calc_state_space_4(xReduced, uReduced, NGear, params):
+def calc_state_space_4(xReduced, uReduced, NGear, params, BFTyrePeak=False):
     """Calculate state space A and B matrices for regime 1, linearised about the point with state x and input u"""
     dvCar, drSlip = calc_dx_4(xReduced, uReduced, NGear, params)
     vCar, rSlip = xReduced
     rThrottleLinear = uReduced[0]
 
+    # Avoid numerical instability at low speed
+    vCar = max(vCarMin, vCar)
+
     # Intermediate variables
     rGear = params['rGears'][NGear - 1] * params['rGearFinal']
     wEngine = rGear * (vCar * rSlip + vCar) / params['lWheel']
     IEquiv = ((params['IEngine'] + params['IGearbox']) * rGear ** 2 + params['IWheel']) / params['lWheel']
-    tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
-    dFTyre_drSlip = calc_dFTyre_drSlip(rSlip, *tyreParams)
     dMEngineMax_dwEngine = calc_dMEngineMax_dwEngine(wEngine, params['EngineLUT'])
     dMEngineMax_dvCar = (rGear / params['lWheel']) * dMEngineMax_dwEngine * (rSlip + 1) * rThrottleLinear
     dMEngineMax_drSlip = (rGear / params['lWheel']) * dMEngineMax_dwEngine * vCar * rThrottleLinear
     MEngineMax = calc_MEngineMax(wEngine, params['EngineLUT'])
+    tyreParams = (params['CTyreB'], params['CTyreC'], params['CTyreD'], params['CTyreE'])
+    dFTyre_drSlip = 0 if BFTyrePeak else calc_dFTyre_drSlip(rSlip, *tyreParams)
 
     L = np.array([[params['mCar'],                                      0],
                   [IEquiv * (1 + rSlip),                                IEquiv * vCar]])
@@ -152,8 +165,8 @@ if __name__ == '__main__':
 
     # Perturb amounts
     NPerturb = 101                      # Number of perturb points in each direction
-    vCarPerturb = 1                     # Reference car speed (m/s)
-    wEnginePerturb = 100 * rpm_to_rads  # Reference engine angular speed (rad/s)
+    vCarPerturb = 5                     # Reference car speed (m/s)
+    wEnginePerturb = 500 * rpm_to_rads  # Reference engine angular speed (rad/s)
     rSlipPerturb = 0.01                 # Reference slip ratio (1)
     rThrottleLinearPerturb = 0.1        # Reference throttle linear input (1)
     rClutchLinearPerturb = 0.1          # Reference clutch linear input (1)

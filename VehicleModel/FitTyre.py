@@ -7,7 +7,7 @@ import scipy
 import numpy as np
 import matplotlib.pyplot as plt
 from VehicleParams import params
-from TyreModel import calc_FTyre, calc_dFTyre_drSlip
+from VehicleModel.TyreModel import calc_FTyre, calc_dFTyre_drSlip
 
 # Unit conversion constants
 rad_to_deg = 180 / np.pi
