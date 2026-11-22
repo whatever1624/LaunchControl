@@ -7,7 +7,7 @@ Note for LUA app implementation, the linear throttle/clutch inputs must be rever
 Already before I've even really implemented anything, I can see a few areas for improvement:
 - Optimal launch trajectory probably requires optimal control to solve (would be a good introduction for doing optimal control for my lap sim project)
 - Vehicle model probably should be implemented in Modelica, then exported as an FMU, so that the linearised system matrices can be computed easily and the model fidelity can be increased more easily
-- Controller probably should be a model-predictive controller
+- Controller probably should be a model-predictive controller but that would be out-of-scope i think
 
 ---
 
