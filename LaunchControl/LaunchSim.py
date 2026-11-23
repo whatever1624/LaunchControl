@@ -22,7 +22,7 @@ wCol = 10   # Column width for info (-)
 
 # TODO: implement control logic in here - probably add an argument to take in the function
 #       function takes in the state vector x (and maybe vehicle parameter dict?) and returns the new control input u
-def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, controlFunc, controlFuncArgs,
+def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, controlFunc, controlFuncArgs, params,
                     BReturnTraj=False, BVerbose=False):
     """Simulate launch from initial state xInitial until the vehicle speed exceeds vCarCutoff"""
     def print_info(t, x, u):
@@ -96,33 +96,62 @@ def simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, controlFunc, con
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    from VehicleModel.VehicleParams import params
+    from VehicleModel.VehicleParams import params, modify_params
+    from LaunchControl.ControlFeedback import calc_control_feedback
     from LaunchControl.ControlOpenLoop import calc_control_open_loop
 
-
-    # Launch settings
-    vCarCutoff = 90 * kph_to_ms             # Car speed cutoff (m/s)
-    wEngineMarginPower = 100 * rpm_to_rads  # Margin to engine limiter (rad/s)
-
-    # Simulation initial state and settings
-    vCarStart = 0                       # Initial car speed (m/s)
-    wEngineStart = params['wEngineLimit'] - wEngineMarginPower   # Initial engine angular speed (rad/s)
-    rSlipStart = 0                      # Initial slip ratio (1)
-
-    # Simulation settings
-    tStepInput = 1e-3                   # Input update timestep (s)
-    tStepSim = 1e-3                     # Simulation integration timestep (s)
+    # Closed-loop controller settings
+    wEngineMarginPower = 10         # Margin to engine limiter (rad/s)
+    wEngineMarginSpeed = 10         # Margin above peak torque engine speed to start blending from regime 3 to regime 2 (rad/s)
+    wEngineBlendUpper = 20          # Blend width between regime 1 and regime 2/3 (rad/s)
+    wEngineBlendLower = 20          # Blend width between regime 2 and regime 3 (rad/s)
+    controlLUT1Filename = r"/Users/willow/Documents/Repos/LaunchControl/OptimiseController/ControlLUT1.csv"
+    controlLUT2Filename = r"/Users/willow/Documents/Repos/LaunchControl/OptimiseController/ControlLUT2.csv"
+    controlLUT3Filename = r"/Users/willow/Documents/Repos/LaunchControl/OptimiseController/ControlLUT3.csv"
+    controlLUT4Filename = r"/Users/willow/Documents/Repos/LaunchControl/OptimiseController/ControlLUT4.csv"
+    gearLUTFilename = r"/Users/willow/Documents/Repos/LaunchControl/OptimalLaunch/OptGearLUT.csv"
 
     # Open-loop controller settings - Filename of the open-loop trajectory CSV
-    trajFilename = r"/Users/willow/Documents/Repos/LaunchControl/OptimalLaunch/OptTraj.csv"
+    trajFilename = r"/Users/willow/Documents/Repos/LaunchControl/OptimalLaunch/OptTrajLUT.csv"
 
-    # Read the trajectory LUT for the open-loop controller
-    trajLUT = np.loadtxt(trajFilename)
+    # Vehicle parameter modifiers
+    rMultMEngine = 1                # Multiplier on peak engine torque (1)
+    rMultFTyre = 1                  # Multiplier on peak tyre force (1)
+
+    # Launch settings
+    BFeedbackControl = True         # Use feedback controller, if not then use open-loop controller
+    vCarCutoff = 90 * kph_to_ms     # Car speed cutoff (m/s)
+
+    # Simulation initial state and settings
+    vCarStart = 0                   # Initial car speed (m/s)
+    wEngineStart = params['wEngineLimit'] - wEngineMarginPower  # Initial engine angular speed (rad/s)
+    rSlipStart = 0                  # Initial slip ratio (1)
+
+    # Simulation settings
+    tStepInput = 0.02               # Input update timestep (s)
+    tStepSim = 1e-3                 # Simulation integration timestep (s)
+
+    # Collate the controller arguments
+    if BFeedbackControl:
+        # Feedback controller - read the control LUTs
+        controlLUT1 = np.loadtxt(controlLUT1Filename)
+        controlLUT2 = np.loadtxt(controlLUT2Filename)
+        controlLUT3 = np.array([np.loadtxt(controlLUT3Filename)])
+        controlLUT4 = np.loadtxt(controlLUT4Filename)
+        gearLUT = np.loadtxt(gearLUTFilename)
+        controlFunc = calc_control_feedback
+        controlFuncArgs = (wEngineMarginPower, wEngineMarginSpeed, wEngineBlendUpper, wEngineBlendLower,
+                           controlLUT1, controlLUT2, controlLUT3, controlLUT4, gearLUT, params)
+    else:
+        # Open-loop controller - read the trajectory LUT
+        trajLUT = np.loadtxt(trajFilename)
+        controlFunc = calc_control_open_loop
+        controlFuncArgs = (trajLUT,)
 
     # Simulate launch
     xInitial = [vCarStart, wEngineStart, rSlipStart]
-    tLaunch, trajLUT = simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim,
-                                    calc_control_open_loop, [trajLUT], True, True)
+    tLaunch, trajLUT = simulate_launch(xInitial, vCarCutoff, tStepInput, tStepSim, controlFunc, controlFuncArgs,
+                                       modify_params(rMultMEngine, rMultFTyre, params), True, True)
 
     # Unpack returned trajectory
     ts = trajLUT[:, 0]

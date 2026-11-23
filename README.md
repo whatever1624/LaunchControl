@@ -14,6 +14,8 @@ Already before I've even really implemented anything, I can see a few areas for 
 Ideation dump:
 - Currently P control only
   - Implement this first to validate the concept
+- Then add delays to the control inputs to model input intervals
+  - Approximate as simple lags
 - I control can be added relatively easily
   - Add the integral states (theta_engine and integral of rSlip) to the state vector, making the associated changes to the system matrices
   - Change in integral error for a given regime is: error * tStepInput * rRegime * (1 - BSaturated), where rRegime is the ratio of control given to the regime, and BSaturated is whether the throttle/clutch control input is saturated

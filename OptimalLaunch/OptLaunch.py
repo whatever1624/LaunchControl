@@ -10,7 +10,7 @@ from VehicleModel.EngineModel import calc_MEngineMax
 from VehicleModel.TyreModel import calc_FTyre
 from VehicleModel.DynamicModel import integrate_dx
 from OptimalLaunch.CalcStateTargets import calc_wEngineTarget_1, calc_wEngineTarget_3, calc_rSlipTarget_124
-from OptimalLaunch.OptGears import opt_gears, select_gear
+from OptimalLaunch.OptGearSelection import opt_gear_selection, select_gear
 
 
 # Print settings
@@ -78,7 +78,7 @@ def opt_launch(xInitial, vCarCutoff, tStepInputInitial, tStepInput, tStepSim, wE
     FTyrePeak = calc_FTyre(rSlipTarget124, *tyreParams)
 
     # Optimise gear selection
-    gearLUT = opt_gears(wEngineMarginPower, params)
+    gearLUT = opt_gear_selection(wEngineMarginPower, params)
 
     if BVerbose:
         print(f"wEngine for max MEngine:        {calc_wEngineTarget_3(params):.3f} rad/s")
@@ -201,7 +201,7 @@ if __name__ == '__main__':
     tStepInputInitial = 0.025               # First input interval (s)
     tStepInput = tStepInputInitial          # Input update timestep (s)
     tStepSim = 1e-3                         # Simulation integration timestep (s)
-    trajFileName = r"OptTraj.csv"           # Filename to save the trajectory CSV
+    trajLUTFileName = r"OptTrajLUT.csv"     # Filename to save the trajectory CSV
 
     # Simulate launch and
     xInitial = [vCarStart, wEngineStart, rSlipStart]
@@ -218,8 +218,8 @@ if __name__ == '__main__':
     print(f"\nTime to vCarCutoff: {tLaunch:.3f} s")
 
     # Save launch trajectory as a CSV file, with columns: t, *x, *u, NGear
-    save_launch_traj(trajLUT, trajFileName)
-    print(f"\nOptimised launch trajectory saved to {trajFileName}")
+    save_launch_traj(trajLUT, trajLUTFileName)
+    print(f"\nOptimised launch trajectory saved to {trajLUTFileName}")
 
     # Extract launch trajectory data
     vCars, wEngines, rSlips = xs.T

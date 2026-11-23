@@ -7,7 +7,7 @@ import scipy
 import numpy as np
 from VehicleModel.DynamicModel import res_control_ref_1, res_control_ref_2, res_control_ref_3, res_control_ref_4
 from VehicleModel.StateSpaceP import calc_state_space_1, calc_state_space_2, calc_state_space_3, calc_state_space_4
-from OptimalLaunch.OptGears import opt_gears, select_gear
+from OptimalLaunch.OptGearSelection import opt_gear_selection, select_gear
 from OptimalLaunch.OptLaunch import calc_wEngineTarget_1, calc_wEngineTarget_3, calc_rSlipTarget_124
 
 # Unit conversion constants
@@ -24,12 +24,12 @@ percent_to_ratio = 0.01
 
 # Gain scheduling settings
 vCarCutoff = 90 * kph_to_ms # Car speed cutoff (m/s)
-vCarInterval = 5            # Car speed intervals between each gain set (m/s)
+vCarInterval = 1            # Car speed intervals between each gain set (m/s)
 
 # Arbitrary pole choices - assigned to the regimes with those states (not guaranteed the pole corresponds to the state)
-pole_vCar = -1              # Pole location for the vCar state
-pole_wEngine = -2           # Pole location for the wEngine state
-pole_rSlip = -4             # Pole location for the rSlip state
+pole_vCar = -20              # Pole location for the vCar state
+pole_wEngine = -30          # Pole location for the wEngine state
+pole_rSlip = -60            # Pole location for the rSlip state
 # TODO: zeta damping ratio? from 0 to 2
 #       0-1 zeta use average pole magnitude, 1-2 zeta linear interp from average pole magnitude to actual magnitude
 #       use average pole location as magnitude to make complex conjugate poles (keep vCar pole real if regime 1)
@@ -58,7 +58,7 @@ wEngineTarget3 = min(wEngineTarget1, wEnginePeak + wEnginePeakOffset)
 rSlipTarget124 = rSlipPeak + rSlipPeakOffset
 
 # Optimise gear selection
-gearLUT = opt_gears(wEngineMarginPower, params)
+gearLUT = opt_gear_selection(wEngineMarginPower, params)
 
 print(f"wEngineLimit:                   {params['wEngineLimit']:.3f} rad/s")
 print(f"wEngine for max MEngine:        {wEnginePeak:.3f} rad/s")
@@ -138,3 +138,18 @@ A3, B3 = calc_state_space_3(xReducedRef3, uReducedRef3, NGearRef, params, BMEngi
 KGains3 = scipy.signal.place_poles(A3, B3, poles3).gain_matrix
 # Update control LUT
 controlLUT3[0] = np.hstack([xReducedRef3, uRef3, KGains3.flatten()])
+
+
+# Save control LUTs
+controlLUT1Filename = "ControlLUT1.csv"
+controlLUT2Filename = "ControlLUT2.csv"
+controlLUT3Filename = "ControlLUT3.csv"
+controlLUT4Filename = "ControlLUT4.csv"
+header1 = "Columns: vCarRef, wEngineTarget, rSlipTarget, rThrottleLinearRef, rClutchLinearRef, KGain1, KGain2, KGain3, KGain4, KGain5, KGain6"
+np.savetxt(controlLUT1Filename, controlLUT1, header=header1)
+header2 = "Columns: vCarRef, rSlipTarget, rThrottleLinearRef, rClutchLinearRef, KGain1, KGain2, KGain3"
+np.savetxt(controlLUT2Filename, controlLUT2, header=header2)
+header3 = "Columns: wEngineTarget, rSlipTarget, rThrottleLinearRef, rClutchLinearRef, KGain1"
+np.savetxt(controlLUT3Filename, controlLUT3, header=header3)
+header4 = "Columns: vCarRef, rSlipTarget, rThrottleLinearRef, rClutchLinearRef, KGain1, KGain2, KGain3"
+np.savetxt(controlLUT4Filename, controlLUT4, header=header4)

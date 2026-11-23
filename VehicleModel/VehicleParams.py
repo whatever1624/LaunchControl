@@ -1,6 +1,7 @@
 """
 Centralised nominal vehicle parameters
 """
+import copy
 import numpy as np
 
 # Unit conversion constants
@@ -37,3 +38,11 @@ params = {
     # Look-up table of maximum engine torque: [wEngine, MEngineMax]
     'EngineLUT': np.array([[0.0, 70.0], [52.36, 70.0], [104.72, 70.0], [157.08, 70.0], [209.44, 113.0], [261.799, 118.0], [314.159, 128.0], [366.519, 129.0], [418.879, 114.0], [471.239, 112.0], [523.599, 110.0], [575.959, 103.0], [628.319, 100.0], [680.678, 91.0], [733.038, 79.0], [785.398, 49.0], [837.758, 20.0], [890.118, 0.0]]),
 }
+
+
+def modify_params(rMultMEngine, rMultFTyre, params):
+    """Copy and modify vehicle parameters"""
+    params = copy.deepcopy(params)
+    params['EngineLUT'] *= rMultMEngine
+    params['CTyreD'] *= rMultFTyre
+    return params

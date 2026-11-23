@@ -7,5 +7,4 @@
 uv.lock
 
 /Data
-
-OptTraj.csv
+*.csv

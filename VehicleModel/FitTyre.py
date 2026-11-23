@@ -22,7 +22,7 @@ ratio_to_percent = 100
 percent_to_ratio = 0.01
 
 # Script settings
-motecCSVFolder = r"Tatuus FA01 Data/Tatuus FA01 MoTeC CSV"
+motecCSVFolder = r"/Users/willow/Documents/Repos/LaunchControl/Data/Tatuus FA01 MoTeC CSV"
 vCarCutoff = 100 * kph_to_ms    # Car speed cutoff (m/s)
 aCarCutoff = 1                  # Longitudinal acceleration cutoff (m/s^2)
 ACutoff = 20 * deg_to_rad       # Angle cutoff for acceleration vector, relative to directly forwards (rad)
@@ -101,9 +101,9 @@ indUpper = int(0.99 * (len(indsSort) - 1))
 rSlipUpper = dataPoints['rSlip'][indsSort][indUpper]
 FTyreUpper = dataPoints['FTyre'][indsSort][indUpper]
 CTyreB = 1.55741 / rSlipUpper
-CTyreC = 2
+CTyreC = 2.
 CTyreD = FTyreUpper
-CTyreE = 1
+CTyreE = 1.
 tyreParamsIters = np.array([[CTyreB, CTyreC, CTyreD, CTyreE]])
 
 # Set bounds for tyre model parameters
@@ -133,7 +133,7 @@ def fit_tyre_model(tyreParams, rSlip_points, FTyre_points, optParamInds=None):
     return tyreParamsOpt
 
 # Least squares fit for CTyreB and CTyreD first for a better initial guess
-print(f"Fitting tyre to {len(dataPoints['rSlip'])} data points")
+print(f"\nFitting tyre to {len(dataPoints['rSlip'])} data points")
 rSlip_points = dataPoints['rSlip']
 FTyre_points = dataPoints['FTyre']
 tyreParamsOpt = fit_tyre_model(tyreParamsIters[-1], rSlip_points, FTyre_points, optParamInds=[0, 2])

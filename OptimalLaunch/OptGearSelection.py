@@ -9,7 +9,7 @@ from VehicleModel.EngineModel import calc_MEngineMax
 from OptimalLaunch.CalcStateTargets import calc_wEngineTarget_1, calc_rSlipTarget_124
 
 
-def opt_gears(wEngineMarginPower, params):
+def opt_gear_selection(wEngineMarginPower, params):
     """Optimise gear selection to produce a LUT with rows [vCarMin, NGear]"""
     NGears = len(params['rGears'])
     gearLUT = np.zeros((NGears, 2))
@@ -74,11 +74,21 @@ if __name__ == '__main__':
     from VehicleModel.VehicleParams import params
 
     # Regime switching parameters
-    wEngineMarginPower = 10  # Margin to engine limiter (rad/s)
+    wEngineMarginPower = 10                 # Margin to engine limiter (rad/s)
+
+    # Settings
+    optGearLUTFilename = r"OptGearLUT.csv"  # Filename to save the optimal gear selection CSV
 
     # Optimise gears
     print("Optimising gears")
-    gearLUT = opt_gears(wEngineMarginPower, params)
-    print(f"Gear LUT:\n{gearLUT}")
+    gearLUT = opt_gear_selection(wEngineMarginPower, params)
 
+    # Print the optimised gear selection
+    print(f"\nGear LUT:")
+    for row in gearLUT:
+        print(f"\t{row}")
 
+    # Save gear lUT
+    header = "Columns: vCarMin, NGear"
+    np.savetxt(optGearLUTFilename, gearLUT, header=header)
+    print(f"\nOptimised gear selection saved to {optGearLUTFilename}")
